@@ -31,6 +31,9 @@ struct TrigramData
     Trigram tri;
     vector<TrigramFilePos> positions;
     string ToString() const;
+
+    bool operator==(const TrigramData& rhs) const;
+    bool operator<(const TrigramData& rhs) const;
 };
 
 struct FileData
@@ -39,15 +42,19 @@ struct FileData
     string filePath;
 
     FileData(const char* path);
+    bool operator<(const FileData& rhs) const;
 };
 
 class Index 
 {
 public:
     bool IndexFile(const string_view& path);
+    void TidyIndex();
+    bool Search(string_view query);
 
 private:
-    void AccumulateTrigram(const TrigramData& tri);
+    void AccumulateTrigram(const Trigram& newTri, u32 fileHash, u32 offset);
+    string ResultToString(const TrigramFilePos& fp) const;
     
     vector<TrigramData> m_trigrams;
     vector<FileData> m_files;
