@@ -1,5 +1,7 @@
 #pragma once
 
+#include "zpp_bits.h"
+
 #include <string>
 #include <string_view>
 #include <vector>
@@ -41,6 +43,7 @@ struct FileData
     u32 fileHash { 0 };
     string filePath;
 
+    FileData() = default;
     FileData(const char* path);
     bool operator<(const FileData& rhs) const;
 };
@@ -51,6 +54,9 @@ public:
     bool IndexFile(const string_view& path);
     void TidyIndex();
     bool Search(string_view query);
+    u32 TrigramCount() const { return m_trigrams.size(); }
+
+    friend zpp::bits::access;
 
 private:
     void AccumulateTrigram(const Trigram& newTri, u32 fileHash, u32 offset);
