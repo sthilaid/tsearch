@@ -48,9 +48,19 @@ bool TrigramData::operator==(const TrigramData& rhs) const
     return tri.hash == rhs.tri.hash;
 }
 
+bool TrigramData::operator==(const Trigram& rhs) const
+{
+    return tri.hash == rhs.hash;
+}
+
 bool TrigramData::operator<(const TrigramData& rhs) const
 {
     return tri.hash < rhs.tri.hash;
+}
+
+bool TrigramData::operator<(const Trigram& rhs) const
+{
+    return tri.hash < rhs.hash;
 }
 
 string TrigramData::ToString() const
@@ -83,20 +93,20 @@ bool FileData::operator<(const FileData& rhs) const
 
 void Index::AccumulateTrigram(const Trigram& newTri, u32 fileHash, u32 offset)
 {
-    // todo, optimize search
-    for (TrigramData& t : m_trigrams)
+    auto end = m_trigrams.end();
+    auto it = std::lower_bound(m_trigrams.begin(), end, newTri);
+    if (it != end && *it == newTri)
     {
-        if (t.tri.hash == newTri.hash)
-        {
-            t.positions.push_back({
-                    .fileId=fileHash,
-                    .offset=offset,
-                });
-            return;
-        }
+        it->positions.push_back({
+                .fileId=fileHash,
+                .offset=offset,
+            });
+        return;
     }
-    m_trigrams.push_back({.tri=newTri});
-    m_trigrams.back().positions.push_back({.fileId = fileHash, .offset = offset});
+    else
+    {
+        m_trigrams.insert(it, TrigramData{.tri = newTri, .positions {{.fileId = fileHash, .offset = offset}}});
+    }
 }
 
 bool Index::IndexFile(const string_view& path)
@@ -105,8 +115,12 @@ bool Index::IndexFile(const string_view& path)
     if (!file.is_open())
         return false;
 
-    std::filesystem::path p { path.data() };
-    m_files.emplace_back(std::filesystem::absolute(p).c_str());
+    const std::filesystem::path p { path.data() };
+    const FileData newFile { std::filesystem::absolute(p).c_str() };
+    auto it = std::lower_bound(m_files.begin(), m_files.end(), newFile);
+    m_files.insert(it, newFile);
+    // auto newFileIt = 
+    // m_files.emplace_back(std::filesystem::absolute(p).c_str());
 
     // printf("file: %s hash: %d\n", m_files.back().filePath.data(), m_files.back().fileHash);
 
@@ -121,7 +135,7 @@ bool Index::IndexFile(const string_view& path)
     }
 
     Trigram tri;
-    const u32 fileHash = m_files.back().fileHash;
+    const u32 fileHash = newFile.fileHash;
 
     char last = '\0';
     for (u32 i=0; i<size; ++i)
@@ -142,25 +156,6 @@ bool Index::IndexFile(const string_view& path)
     // }
 
     return true;
-}
-
-void Index::TidyIndex()
-{
-    std::sort(m_files.begin(), m_files.end());
-    std::sort(m_trigrams.begin(), m_trigrams.end());
-
-    // printf("--- files (%zu) ---\n", m_files.size());
-    // for (const FileData& fd : m_files)
-    // {
-    //     printf("%s", std::format("<{}> - {}\n", fd.fileHash, fd.filePath).data());;
-    // }
-
-    // printf("--- trigrams (%zu) ---\n", m_trigrams.size());
-    // for (const TrigramData& td : m_trigrams)
-    // {
-    //     printf("[%d] (%zu),", td.tri.hash, td.positions.size());
-    // }
-    // printf("\n");
 }
 
 string lineAt(ifstream& in, u32 pos)
@@ -205,7 +200,7 @@ string Index::ResultToString(const TrigramFilePos& fp) const
     return "<!UnknownFile!>";
 }
 
-bool Index::Search(string_view query)
+u32 Index::Search(string_view query)
 {
     if (query.size() < 3) return false;
 
@@ -245,5 +240,5 @@ bool Index::Search(string_view query)
         printf("%s\n", ResultToString(res).data());
     }
     
-    return potentialResults.size() > 0;
+    return potentialResults.size();
 }

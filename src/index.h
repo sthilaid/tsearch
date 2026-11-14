@@ -35,7 +35,9 @@ struct TrigramData
     string ToString() const;
 
     bool operator==(const TrigramData& rhs) const;
+    bool operator==(const Trigram& rhs) const;
     bool operator<(const TrigramData& rhs) const;
+    bool operator<(const Trigram& rhs) const;
 };
 
 struct FileData
@@ -52,8 +54,7 @@ class Index
 {
 public:
     bool IndexFile(const string_view& path);
-    void TidyIndex();
-    bool Search(string_view query);
+    u32 Search(string_view query);
     u32 TrigramCount() const { return m_trigrams.size(); }
 
     friend zpp::bits::access;

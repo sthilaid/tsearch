@@ -1,5 +1,6 @@
 #include "index.h"
 
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -7,6 +8,7 @@
 #include <string>
 #include <vector>
 
+using namespace std::chrono;
 using std::ifstream;
 using std::ofstream;
 using std::string;
@@ -47,6 +49,7 @@ int main(int argc, const char** argv)
 
     if (ParseArguments(args, indexPath, search, verbose)) {
 
+        auto start = steady_clock::now();
         ifstream indexFile { indexPath.data(), std::ios::binary };
         if (indexFile.is_open())
         {
@@ -60,7 +63,13 @@ int main(int argc, const char** argv)
             zpp::bits::in in { indexData };
             std::ignore = in(index);
 
-            index.Search(search);
+            auto end = steady_clock::now();
+            printf("Index deserialization finished in %.4f secs.\n", duration<float>(end-start).count());
+
+            start = steady_clock::now();
+            const u32 resultCount = index.Search(search);
+            end = steady_clock::now();
+            printf("Search found %d results in %.4f secs.\n", resultCount, duration<float>(end-start).count());
         }
     } else {
         printf("usage: tsearch <options> [search string]\n");

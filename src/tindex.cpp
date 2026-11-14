@@ -1,11 +1,13 @@
 #include "index.h"
 
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
 
+using namespace std::chrono;
 using std::ifstream;
 using std::ofstream;
 using std::string;
@@ -19,7 +21,7 @@ using std::vector;
 bool ParseArguments(const vector<string_view> args, string_view& outputFile, vector<string_view>& inputFiles, bool& verbose)
 {
     bool parsingFiles = false;
-    
+    //for (const string_view& v : args) printf("%s\n", v.data());
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i][0] == '-')  {
             if (parsingFiles)
@@ -57,6 +59,8 @@ int main(int argc, const char** argv)
         //     printf("\t%s\n", f.data());
         // }
 
+        auto start = steady_clock::now();
+
         Index newIndex {};
 
         const u32 totalFiles = inputFiles.size();
@@ -67,8 +71,13 @@ int main(int argc, const char** argv)
             const u32 postcount = newIndex.TrigramCount();
             printf("[%d/%d] %s - %d new trigrams - total: %d\n", i+1, totalFiles, f.data(), (postcount-precount), postcount);
         }
-        newIndex.TidyIndex();
 
+        auto end = steady_clock::now();
+        auto elapsed = end - start;
+
+        printf("indexation finished in %.4f secs.\n", duration<float>(elapsed).count());
+
+        start = steady_clock::now();
         ofstream indexFile { outputFile.data(), std::ios::binary };
         if (indexFile.is_open())
         {
@@ -78,6 +87,9 @@ int main(int argc, const char** argv)
             auto processed = out.processed_data();
             indexFile.write(reinterpret_cast<const char*>(processed.data()), processed.size());
         }
+        end = steady_clock::now();
+        elapsed = end - start;
+        printf("index serialization finished in %.4f secs.\n", duration<float>(elapsed).count());
     } else {
         printf("usage: tindex <options> [files to index]\n");
     }
