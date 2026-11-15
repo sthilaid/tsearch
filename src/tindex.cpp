@@ -50,20 +50,35 @@ bool ParseArguments(
     return inputFiles.size() > 0;
 }
 
-void resolve_dirs(vector<string>& inputFiles, const vector<string_view>& extensions, auto& it)
+void resolve_dirs(vector<string>& inputFiles, const vector<string_view>& extensions, auto& it, u32& totalBytes)
 {
     const std::filesystem::path filePath { it->data() };
-    if (!std::filesystem::is_directory(filePath))
-        return;
-
-    it = inputFiles.erase(it);
-    for (auto dirIt : std::filesystem::directory_iterator(filePath))
+    if (std::filesystem::is_directory(filePath))
     {
-        const string ext = dirIt.path().extension().c_str();
-        if (extensions.empty() || std::find(extensions.begin(), extensions.end(), ext) != extensions.end())
+        it = inputFiles.erase(it);
+        for (auto dirIt : std::filesystem::directory_iterator(filePath))
         {
             it = inputFiles.insert(it, std::filesystem::absolute(dirIt.path()).c_str());
+        }        
+    }
+    else if (!extensions.empty())
+    {
+        const string ext = filePath.extension().c_str();
+        auto extIt = std::find(extensions.begin(), extensions.end(), ext);
+        if (extIt == extensions.end())
+        {
+            it = inputFiles.erase(it);
         }
+        else
+        {
+            ++it; // keep it, extension valid
+            totalBytes += std::filesystem::file_size(filePath);
+        }
+    }
+    else
+    {
+        ++it; // keep all files
+        totalBytes += std::filesystem::file_size(filePath);
     }
 }
 
@@ -78,8 +93,10 @@ int main(int argc, const char** argv)
     vector<string_view> extensions;
 
     if (ParseArguments(args, outputFile, inputFiles, verbose, extensions)) {
-        for (auto it=inputFiles.begin(); it !=inputFiles.end(); ++it) {
-            resolve_dirs(inputFiles, extensions, it);
+        u32 totalBytes = 0;
+        auto it=inputFiles.begin();
+        while (it != inputFiles.end()) {
+            resolve_dirs(inputFiles, extensions, it, totalBytes);
         }
 
         // printf("output: %s\n", outputFile.data());
@@ -97,15 +114,18 @@ int main(int argc, const char** argv)
             const string& f = inputFiles[i];
             const u32 precount = newIndex.TrigramCount();
 
+            printf("[%d/%d] %s", i+1, totalFiles, f.data());
             newIndex.IndexFile(f);
             const u32 postcount = newIndex.TrigramCount();
-            printf("[%d/%d] %s - %d new trigrams - total: %d\n", i+1, totalFiles, f.data(), (postcount-precount), postcount);
+            printf(" - %d new trigrams - total: %d\n", (postcount-precount), postcount);
         }
 
         auto end = steady_clock::now();
         auto elapsed = end - start;
 
-        printf("indexation finished in %.4f secs.\n", duration<float>(elapsed).count());
+        printf("Indexation finished in %.4f secs. Indexed %d kB (avg: %.2f kB/sec)\n",
+               duration<float>(elapsed).count(),
+               totalBytes/1000, totalBytes / (1000*duration<float>(elapsed).count()));
 
         start = steady_clock::now();
         ofstream indexFile { outputFile.data(), std::ios::binary };
