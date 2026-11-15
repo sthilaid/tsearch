@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -18,7 +19,12 @@ using std::vector;
 //-----------------------------------------------------------------------------
 // main
 
-bool ParseArguments(const vector<string_view> args, string_view& outputFile, vector<string_view>& inputFiles, bool& verbose)
+bool ParseArguments(
+    const vector<string_view> args,
+    string_view& outputFile,
+    vector<string>& inputFiles,
+    bool& verbose,
+    vector<string_view>& extensions)
 {
     bool parsingFiles = false;
     //for (const string_view& v : args) printf("%s\n", v.data());
@@ -31,15 +37,34 @@ bool ParseArguments(const vector<string_view> args, string_view& outputFile, vec
                 verbose = true;
             } else if ((args[i] == "-o" || args[i] == "--output") && i + 1 < args.size() ) {
                 outputFile = args[++i]; // Consume the next argument as the value
+            } else if ((args[i] == "-e" || args[i] == "--extension") && i + 1 < args.size() ) {
+                extensions.push_back(args[++i]); // Consume the next argument as the value
             } 
         }
         else {
             parsingFiles = true;
-            inputFiles.push_back(args[i]);
+            inputFiles.push_back(args[i].data());
         }
     }
 
     return inputFiles.size() > 0;
+}
+
+void resolve_dirs(vector<string>& inputFiles, const vector<string_view>& extensions, auto& it)
+{
+    const std::filesystem::path filePath { it->data() };
+    if (!std::filesystem::is_directory(filePath))
+        return;
+
+    it = inputFiles.erase(it);
+    for (auto dirIt : std::filesystem::directory_iterator(filePath))
+    {
+        const string ext = dirIt.path().extension().c_str();
+        if (extensions.empty() || std::find(extensions.begin(), extensions.end(), ext) != extensions.end())
+        {
+            it = inputFiles.insert(it, std::filesystem::absolute(dirIt.path()).c_str());
+        }
+    }
 }
 
 int main(int argc, const char** argv)
@@ -49,13 +74,17 @@ int main(int argc, const char** argv)
 
     bool verbose = true;
     string_view outputFile = ".tindex";
-    vector<string_view> inputFiles;
+    vector<string> inputFiles;
+    vector<string_view> extensions;
 
-    if (ParseArguments(args, outputFile, inputFiles, verbose)) {
+    if (ParseArguments(args, outputFile, inputFiles, verbose, extensions)) {
+        for (auto it=inputFiles.begin(); it !=inputFiles.end(); ++it) {
+            resolve_dirs(inputFiles, extensions, it);
+        }
+
         // printf("output: %s\n", outputFile.data());
         // printf("input: \n");
-        // for (const string_view& f : inputFiles)
-        // {
+        // for (const string& f : inputFiles) {
         //     printf("\t%s\n", f.data());
         // }
 
@@ -65,8 +94,9 @@ int main(int argc, const char** argv)
 
         const u32 totalFiles = inputFiles.size();
         for (int i=0; i<totalFiles; ++i) {
-            const string_view& f = inputFiles[i];
+            const string& f = inputFiles[i];
             const u32 precount = newIndex.TrigramCount();
+
             newIndex.IndexFile(f);
             const u32 postcount = newIndex.TrigramCount();
             printf("[%d/%d] %s - %d new trigrams - total: %d\n", i+1, totalFiles, f.data(), (postcount-precount), postcount);
