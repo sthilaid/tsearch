@@ -53,11 +53,15 @@ bool ParseArguments(
 void resolve_dirs(vector<string>& inputFiles, const vector<string_view>& extensions, auto& it, u32& totalBytes)
 {
     const std::filesystem::path filePath { it->data() };
-    if (std::filesystem::is_directory(filePath))
+    if (!std::filesystem::exists(filePath))
+    {
+        it = inputFiles.erase(it); // remove links
+    }
+    else if (std::filesystem::is_directory(filePath))
     {
         it = inputFiles.erase(it);
         for (auto dirIt : std::filesystem::directory_iterator(filePath))
-        {
+       {
             it = inputFiles.insert(it, std::filesystem::absolute(dirIt.path()).c_str());
         }        
     }
@@ -105,9 +109,12 @@ int main(int argc, const char** argv)
         //     printf("\t%s\n", f.data());
         // }
 
+        string absoluteOutputFile = std::filesystem::absolute(outputFile);
+
         auto start = steady_clock::now();
 
         Index newIndex {};
+        newIndex.Init(absoluteOutputFile);
 
         const u32 totalFiles = inputFiles.size();
         for (int i=0; i<totalFiles; ++i) {
@@ -136,10 +143,12 @@ int main(int argc, const char** argv)
 
             auto processed = out.processed_data();
             indexFile.write(reinterpret_cast<const char*>(processed.data()), processed.size());
+            //newIndex.Serialize(indexFile);
         }
         end = steady_clock::now();
         elapsed = end - start;
-        printf("index serialization finished in %.4f secs.\n", duration<float>(elapsed).count());
+        const u32 indexFileSize = std::filesystem::file_size(outputFile);
+        printf("index serialization (%.2u kB) finished in %.4f secs.\n", indexFileSize/1000, duration<float>(elapsed).count());
     } else {
         printf("usage: tindex <options> [files to index]\n");
     }

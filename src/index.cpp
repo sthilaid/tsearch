@@ -4,13 +4,21 @@
 #include <cstdio>
 #include <filesystem>
 #include <format>
-#include <fstream>
-#include <iostream>
 #include <string>
 
 using std::ifstream;
 using std::ofstream;
 using std::string;
+
+template<typename T>
+void read(ifstream& input, T* v, u32 size) {
+    input.read(reinterpret_cast<char*>(v), size);
+}
+
+template<typename T>
+void write(ofstream& output, T* v, u32 size) {
+    output.write(reinterpret_cast<char*>(v), size);
+}
 
 //-----------------------------------------------------------------------------
 // Trigram
@@ -38,6 +46,37 @@ Trigram& Trigram::operator<<(char c)
 const char* Trigram::ToStr() const
 {
     return tri;
+}
+
+void Trigram::Serialize(ofstream& file)
+{
+    write(file, tri, sizeof(tri));
+    write(file, &hash, sizeof(hash));
+}
+
+Trigram Trigram::Unserialize(ifstream& file)
+{
+    Trigram out;
+    read(file, &out.tri, sizeof(out.tri));
+    read(file, &out.hash, sizeof(out.hash));
+    return out;
+}
+
+//-----------------------------------------------------------------------------
+// TrigramFilePos
+
+void TrigramFilePos::Serialize(ofstream& file)
+{
+    write(file, &fileId, sizeof(fileId));
+    write(file, &offset, sizeof(offset));
+}
+
+TrigramFilePos TrigramFilePos::Unserialize(ifstream& file)
+{
+    TrigramFilePos out;
+    read(file, &out.fileId, sizeof(out.fileId));
+    read(file, &out.offset, sizeof(out.offset));
+    return out;
 }
 
 //-----------------------------------------------------------------------------
@@ -74,6 +113,34 @@ string TrigramData::ToString() const
     return s;
 }
 
+void TrigramData::Serialize(ofstream& file)
+{
+    tri.Serialize(file);
+
+    u32 posCount = positions.size();
+    write(file, &posCount, sizeof(posCount));
+    for (TrigramFilePos& fp : positions) {
+        fp.Serialize(file);
+    }
+}
+
+TrigramData TrigramData::Unserialize(ifstream& file)
+{
+    TrigramData out;
+    out.tri = Trigram::Unserialize(file);
+    u32 posCount;
+    read(file, &posCount, sizeof(posCount));
+
+    out.positions.resize(posCount);
+    for (u32 i=0; i<posCount; ++i)
+    {
+        out.positions[i] = TrigramFilePos::Unserialize(file);
+    }
+
+    return out;
+}
+
+
 //-----------------------------------------------------------------------------
 // FileData
 
@@ -88,8 +155,35 @@ bool FileData::operator<(const FileData& rhs) const
     return fileHash < rhs.fileHash;
 }
 
+void FileData::Serialize(ofstream& file)
+{
+    write(file, &fileHash, sizeof(fileHash));
+
+    std::size_t filePathSize = filePath.size();
+    write(file, &filePathSize, sizeof(filePathSize));
+    write(file, filePath.data(), filePathSize);
+}
+
+FileData FileData::Unserialize(ifstream& file)
+{
+    FileData out;
+    read(file, &out.fileHash, sizeof(out.fileHash));
+
+    std::size_t filePathSize;
+    read(file, &filePathSize, sizeof(filePathSize));
+    out.filePath.resize(filePathSize);
+    
+    read(file, out.filePath.data(), filePathSize);
+    return out;
+}
+
 //-----------------------------------------------------------------------------
 // Index
+
+void Index::Init(string_view indexAbsolutePath)
+{
+    m_indexFilePath = indexAbsolutePath;
+}
 
 void Index::AccumulateTrigram(const Trigram& newTri, u32 fileHash, u32 offset)
 {
@@ -111,18 +205,20 @@ void Index::AccumulateTrigram(const Trigram& newTri, u32 fileHash, u32 offset)
 
 bool Index::IndexFile(const string_view& path)
 {
+    if (m_indexFilePath.empty())
+        return false; // not init
+    
     ifstream file { path.data(), std::ios::binary | std::ios::ate };
     if (!file.is_open())
         return false;
 
-    const std::filesystem::path p { path.data() };
-    const FileData newFile { std::filesystem::absolute(p).c_str() };
+    std::filesystem::path parent { std::filesystem::path{m_indexFilePath}.parent_path() };
+    std::filesystem::path relativePath { std::filesystem::relative(path.data(), parent) };
+    const FileData newFile { relativePath.c_str() };
     auto it = std::lower_bound(m_files.begin(), m_files.end(), newFile);
     m_files.insert(it, newFile);
-    // auto newFileIt = 
-    // m_files.emplace_back(std::filesystem::absolute(p).c_str());
 
-    // printf("file: %s hash: %d\n", m_files.back().filePath.data(), m_files.back().fileHash);
+    // printf("file: %s hash: %u\n", m_files.back().filePath.data(), m_files.back().fileHash);
 
     std::streamsize size = file.tellg();
     file.seekg(0, std::ios::beg);
@@ -188,21 +284,24 @@ string Index::ResultToString(const TrigramFilePos& fp) const
     if (searchIt != m_files.end())
     {
         const string& filepath = (*searchIt).filePath;
-        
-        ifstream file { filepath.data(), std::ios::binary };
+
+        std::filesystem::path parent { std::filesystem::path{m_indexFilePath}.parent_path() };
+        const string absolutePath = (parent.string() + "/" + filepath).c_str();
+        ifstream file { absolutePath, std::ios::binary };
         if (file.is_open())
         {
             string line = lineAt(file, fp.offset);
-            return std::format("{}#{} : {}", filepath, fp.offset, line);
+            return std::format("{}#{} : {}", absolutePath, fp.offset, line);
         }
     }
 
-    return "<!UnknownFile!>";
+    return std::format("<!UnknownFile! ({})>", fd.fileHash);
 }
 
 u32 Index::Search(string_view query)
 {
-    if (query.size() < 3) return false;
+    if (m_indexFilePath.empty()) return false; // not init
+    if (query.size() < 3) return false; 
 
     printf("Search for \"%s\":\n", query.data());
 
@@ -241,4 +340,42 @@ u32 Index::Search(string_view query)
     }
     
     return potentialResults.size();
+}
+
+void Index::Serialize(ofstream& outFile)
+{
+    u32 triSize = m_trigrams.size();
+    write(outFile, &triSize, sizeof(triSize));
+
+    u32 filesSize = m_files.size();
+    write(outFile, &filesSize, sizeof(filesSize));
+
+    for (TrigramData& tridata : m_trigrams)
+        tridata.Serialize(outFile);
+
+    for (FileData& file : m_files)
+        file.Serialize(outFile);
+}
+
+Index Index::Unserialize(ifstream& inFile)
+{
+    Index index;
+    
+    u32 triSize;
+    read(inFile, &triSize, sizeof(triSize));
+
+    u32 filesSize;
+    read(inFile, &filesSize, sizeof(filesSize));
+
+    index.m_trigrams.resize(triSize);
+    index.m_files.resize(filesSize);
+
+    for (u32 i=0; i<triSize; ++i) {
+        index.m_trigrams[i] = TrigramData::Unserialize(inFile);
+    }
+
+    for (u32 i=0; i<filesSize; ++i) {
+        index.m_files[i] = FileData::Unserialize(inFile);
+    }
+    return index;
 }

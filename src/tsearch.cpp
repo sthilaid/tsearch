@@ -63,8 +63,12 @@ int main(int argc, const char** argv)
             zpp::bits::in in { indexData };
             std::ignore = in(index);
 
+            string absoluteIndexFilePath = std::filesystem::absolute(indexPath).string();
+            index.Init(absoluteIndexFilePath);
+
             auto end = steady_clock::now();
-            printf("Index deserialization finished in %.4f secs.\n", duration<float>(end-start).count());
+            printf("index file: %s\n", indexPath.data());
+            printf("%s deserialization finished in %.4f secs.\n", absoluteIndexFilePath.data(), duration<float>(end-start).count());
 
             start = steady_clock::now();
             const u32 resultCount = index.Search(search);
