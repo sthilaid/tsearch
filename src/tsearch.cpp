@@ -19,13 +19,15 @@ using std::vector;
 //-----------------------------------------------------------------------------
 // main
 
-bool ParseArguments(const vector<string_view> args, string_view& indexFile, string_view& search, bool& verbose)
+bool ParseArguments(const vector<string_view> args, string_view& indexFile, string_view& search, bool& incensitive, bool& verbose)
 {
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i][0] == '-')  {
             if (args[i] == "-v" || args[i] == "--verbose") {
                 verbose = true;
-            } else if ((args[i] == "-i" || args[i] == "--index") && i + 1 < args.size() ) {
+            } else if (args[i] == "-i") {
+                incensitive = true;
+            } else if ((args[i] == "-f" || args[i] == "--index-file") && i + 1 < args.size() ) {
                 indexFile = args[++i]; // Consume the next argument as the value
             } 
         }
@@ -44,10 +46,11 @@ int main(int argc, const char** argv)
     const vector<string_view> args(argv + 1, argv + argc);
 
     bool verbose = true;
+    bool incensitive = false;
     string_view indexPath = ".tindex";
     string_view search = "";
 
-    if (ParseArguments(args, indexPath, search, verbose)) {
+    if (ParseArguments(args, indexPath, search, incensitive, verbose)) {
 
         auto start = steady_clock::now();
         ifstream indexFile { indexPath.data(), std::ios::binary };
@@ -71,7 +74,7 @@ int main(int argc, const char** argv)
             printf("%s deserialization finished in %.4f secs.\n", absoluteIndexFilePath.data(), duration<float>(end-start).count());
 
             start = steady_clock::now();
-            const u32 resultCount = index.Search(search);
+            const u32 resultCount = index.Search(search, incensitive);
             end = steady_clock::now();
             printf("Search found %d results in %.4f secs.\n", resultCount, duration<float>(end-start).count());
         }

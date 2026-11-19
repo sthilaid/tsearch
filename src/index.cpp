@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <format>
 #include <string>
+#include <thread>
 
 using std::ifstream;
 using std::ofstream;
@@ -298,7 +299,7 @@ string Index::ResultToString(const TrigramFilePos& fp) const
     return std::format("<!UnknownFile! ({})>", fd.fileHash);
 }
 
-u32 Index::Search(string_view query)
+u32 Index::Search(string_view query, bool incensitive)
 {
     if (m_indexFilePath.empty()) return false; // not init
     if (query.size() < 3) return false; 
@@ -310,6 +311,8 @@ u32 Index::Search(string_view query)
     queryTrigram.tri << query[1];
 
     vector<TrigramFilePos> potentialResults;
+
+    // todo implement case insensitive search
     
     for (int i=2; i<query.size(); ++i)
     {
@@ -340,6 +343,27 @@ u32 Index::Search(string_view query)
     }
     
     return potentialResults.size();
+}
+
+void Index::Merge(Index&& rhs)
+{
+    for (TrigramData& rhsData : std::move(rhs.m_trigrams))
+    {
+        auto searchIt = std::lower_bound(m_trigrams.begin(), m_trigrams.end(), rhsData);
+        if (searchIt == m_trigrams.end() || (*searchIt) != rhsData)
+        {
+            m_trigrams.insert(searchIt, std::move(rhsData));
+        }
+        else
+        {
+            (*searchIt).positions.insert((*searchIt).positions.end(), rhsData.positions.begin(), rhsData.positions.end());
+        }
+    }
+    for (FileData& rhsFileData : std::move(rhs.m_files))
+    {
+        auto searchIt = std::lower_bound(m_files.begin(), m_files.end(), rhsFileData);
+        m_files.insert(searchIt, std::move(rhsFileData));
+    }
 }
 
 void Index::Serialize(ofstream& outFile)

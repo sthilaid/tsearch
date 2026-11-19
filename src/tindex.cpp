@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace std::chrono;
@@ -113,28 +114,67 @@ int main(int argc, const char** argv)
 
         auto start = steady_clock::now();
 
-        Index newIndex {};
-        newIndex.Init(absoluteOutputFile);
+        // Index newIndex {};
+        // newIndex.Init(absoluteOutputFile);
+
+        // const u32 totalFiles = inputFiles.size();
+        // for (int i=0; i<totalFiles; ++i) {
+        //     const string& f = inputFiles[i];
+        //     const u32 precount = newIndex.TrigramCount();
+
+        //     printf("[%d/%d] %s", i+1, totalFiles, f.data());
+        //     newIndex.IndexFile(f);
+        //     const u32 postcount = newIndex.TrigramCount();
+        //     printf(" - %d new trigrams - total: %d\n", (postcount-precount), postcount);
+        // }
 
         const u32 totalFiles = inputFiles.size();
-        for (int i=0; i<totalFiles; ++i) {
-            const string& f = inputFiles[i];
-            const u32 precount = newIndex.TrigramCount();
+        auto indexFun = [&inputFiles, totalFiles] (Index& index, u32 threadID, u32 from, u32 to) {
+            for (int i=from; i<to; ++i) {
+                const string& f = inputFiles[i];
+                const u32 precount = index.TrigramCount();
+                index.IndexFile(f);
+                const u32 postcount = index.TrigramCount();
+                printf("[%d - %d/%d] %s - %d new trigrams - total: %d\n", threadID, i-from+1, to-from, f.data(), (postcount-precount), postcount);
+            }};
 
-            printf("[%d/%d] %s", i+1, totalFiles, f.data());
-            newIndex.IndexFile(f);
-            const u32 postcount = newIndex.TrigramCount();
-            printf(" - %d new trigrams - total: %d\n", (postcount-precount), postcount);
+        #define min(a,b) (a<b ? a : b)
+        #define max(a,b) (a>=b ? a : b)
+        const u32 threadCount = max(1, min(8, totalFiles));
+        vector<Index> indexes;
+        indexes.resize(threadCount);
+        for (Index& i : indexes) i.Init(absoluteOutputFile);
+        
+        vector<std::jthread> threads;
+        threads.resize(threadCount);
+        
+        const u32 filesPerThread = totalFiles / threadCount;
+        for (u32 t=0; t<threadCount; ++t)
+        {
+            const u32 from = t*filesPerThread;
+            const u32 to = (t+1)*filesPerThread;
+            threads[t] = std::jthread(indexFun, std::ref(indexes[t]), t, from, to);
+            printf("thread %d from %d to %d\n", t, from, to);
         }
+        for (u32 t=0; t<threadCount; ++t) threads[t].join();
 
         auto end = steady_clock::now();
         auto elapsed = end - start;
 
-        printf("Indexation finished in %.4f secs. Indexed %d kB (avg: %.2f kB/sec)\n",
+        printf("Indexation finished in %.4f secs.\n", duration<float>(elapsed).count());
+        
+        for (u32 t=1; t<threadCount; ++t) indexes[0].Merge(std::move(indexes[t]));
+        const Index& newIndex = indexes[0];
+
+        start = end;
+        end = steady_clock::now();
+        elapsed = end - start;
+
+        printf("Indexation Merging in %.4f secs. Indexed %d kB (avg: %.2f kB/sec)\n",
                duration<float>(elapsed).count(),
                totalBytes/1000, totalBytes / (1000*duration<float>(elapsed).count()));
 
-        start = steady_clock::now();
+        start = end;
         ofstream indexFile { outputFile.data(), std::ios::binary };
         if (indexFile.is_open())
         {

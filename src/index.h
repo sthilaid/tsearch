@@ -67,8 +67,10 @@ class Index
 public:
     void Init(string_view indexAbsolutePath);
     bool IndexFile(const string_view& path);
-    u32 Search(string_view query);
+    u32 Search(string_view query, bool incensitive);
     u32 TrigramCount() const { return m_trigrams.size(); }
+    void Merge(Index&& rhs);
+    
     void Serialize(ofstream& file);
     static Index Unserialize(ifstream& file);
 
