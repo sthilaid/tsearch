@@ -255,13 +255,23 @@ bool Index::IndexFile(const string_view& path)
     return true;
 }
 
-string lineAt(ifstream& in, u32 pos)
+std::tuple<string,u32> lineAt(ifstream& in, u32 pos)
 {
     in.clear();  // clear eof/fail bits from earlier reads
 
-    std::streamoff start = pos;
+    u32 lineCount = 1;
+    std::vector<char> buf(1 << 16);
+    std::streamoff remaining = pos;
 
-    // Walk backwards to find the start of the line
+    while (remaining > 0 && in) {
+        auto n = std::min<std::streamoff>(remaining, buf.size());
+        in.read(buf.data(), n);
+        auto got = in.gcount();
+        lineCount += std::count(buf.data(), buf.data() + got, '\n');
+        remaining -= got;
+    }
+
+    std::streamoff start = pos;
     while (start > 0) {
         in.seekg(start - 1);
         char c;
@@ -273,7 +283,7 @@ string lineAt(ifstream& in, u32 pos)
     in.seekg(start);
     std::string line;
     std::getline(in, line);
-    return line;
+    return {line, lineCount};
 }
 
 string Index::ResultToString(const TrigramFilePos& fp) const
@@ -291,8 +301,8 @@ string Index::ResultToString(const TrigramFilePos& fp) const
         ifstream file { absolutePath, std::ios::binary };
         if (file.is_open())
         {
-            string line = lineAt(file, fp.offset);
-            return std::format("{}#{} : {}", absolutePath, fp.offset, line);
+            auto [line,lineCount] = lineAt(file, fp.offset);
+            return std::format("{}:{}:{}", absolutePath, lineCount, line);
         }
     }
 
