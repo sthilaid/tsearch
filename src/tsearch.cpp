@@ -43,7 +43,8 @@ bool ParseArguments(const vector<string_view> args, string_view& indexFile, stri
 int main(int argc, const char** argv)
 {
     // Skip argv[0] (the program name)
-    const vector<string_view> args(argv + 1, argv + argc);
+    const vector<string> utf8Args = Utf8Arguments(argc, argv);
+    const vector<string_view> args(utf8Args.begin(), utf8Args.end());
 
     bool verbose = true;
     bool incensitive = false;
@@ -53,10 +54,11 @@ int main(int argc, const char** argv)
     if (ParseArguments(args, indexPath, search, incensitive, verbose)) {
 
         auto start = steady_clock::now();
-        ifstream indexFile { indexPath.data(), std::ios::binary };
+        const std::filesystem::path indexFilePath = PathFromUtf8(indexPath);
+        ifstream indexFile { indexFilePath, std::ios::binary };
         if (indexFile.is_open())
         {
-            vector<std::byte> indexData(std::filesystem::file_size(indexPath));
+            vector<std::byte> indexData(std::filesystem::file_size(indexFilePath));
             indexFile.read(reinterpret_cast<char*>(indexData.data()), static_cast<std::streamsize>(indexData.size()));
             if (!indexFile) {
                 return 1; // short read or I/O error
@@ -66,7 +68,7 @@ int main(int argc, const char** argv)
             zpp::bits::in in { indexData };
             std::ignore = in(index);
 
-            string absoluteIndexFilePath = std::filesystem::absolute(indexPath).string();
+            string absoluteIndexFilePath = Utf8FromPath(std::filesystem::absolute(indexFilePath));
             index.Init(absoluteIndexFilePath);
 
             auto end = steady_clock::now();

@@ -53,7 +53,7 @@ bool ParseArguments(
 
 void resolve_dirs(vector<string>& inputFiles, const vector<string_view>& extensions, auto& it, u32& totalBytes)
 {
-    const std::filesystem::path filePath { it->data() };
+    const std::filesystem::path filePath = PathFromUtf8(*it);
     if (!std::filesystem::exists(filePath))
     {
         it = inputFiles.erase(it); // remove links
@@ -63,12 +63,12 @@ void resolve_dirs(vector<string>& inputFiles, const vector<string_view>& extensi
         it = inputFiles.erase(it);
         for (auto dirIt : std::filesystem::directory_iterator(filePath))
        {
-            it = inputFiles.insert(it, std::filesystem::absolute(dirIt.path()).c_str());
+            it = inputFiles.insert(it, Utf8FromPath(std::filesystem::absolute(dirIt.path())));
         }        
     }
     else if (!extensions.empty())
     {
-        const string ext = filePath.extension().c_str();
+        const string ext = Utf8FromPath(filePath.extension());
         auto extIt = std::find(extensions.begin(), extensions.end(), ext);
         if (extIt == extensions.end())
         {
@@ -90,7 +90,8 @@ void resolve_dirs(vector<string>& inputFiles, const vector<string_view>& extensi
 int main(int argc, const char** argv)
 {
     // Skip argv[0] (the program name)
-    const vector<string_view> args(argv + 1, argv + argc);
+    const vector<string> utf8Args = Utf8Arguments(argc, argv);
+    const vector<string_view> args(utf8Args.begin(), utf8Args.end());
 
     bool verbose = true;
     string_view outputFile = ".tindex";
@@ -110,7 +111,8 @@ int main(int argc, const char** argv)
         //     printf("\t%s\n", f.data());
         // }
 
-        string absoluteOutputFile = std::filesystem::absolute(outputFile);
+        const std::filesystem::path outputPath = PathFromUtf8(outputFile);
+        string absoluteOutputFile = Utf8FromPath(std::filesystem::absolute(outputPath));
 
         auto start = steady_clock::now();
 
@@ -175,7 +177,7 @@ int main(int argc, const char** argv)
                totalBytes/1000, totalBytes / (1000*duration<float>(elapsed).count()));
 
         start = end;
-        ofstream indexFile { outputFile.data(), std::ios::binary };
+        ofstream indexFile { outputPath, std::ios::binary };
         if (indexFile.is_open())
         {
             auto [data,in,out] = zpp::bits::data_in_out();
@@ -187,7 +189,7 @@ int main(int argc, const char** argv)
         }
         end = steady_clock::now();
         elapsed = end - start;
-        const u32 indexFileSize = std::filesystem::file_size(outputFile);
+        const u32 indexFileSize = std::filesystem::file_size(outputPath);
         printf("index serialization (%.2u kB) finished in %.4f secs.\n", indexFileSize/1000, duration<float>(elapsed).count());
     } else {
         printf("usage: tindex <options> [files to index]\n");

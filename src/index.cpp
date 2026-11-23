@@ -7,9 +7,52 @@
 #include <string>
 #include <thread>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
+#pragma comment(lib, "shell32.lib")
+#endif
+
 using std::ifstream;
 using std::ofstream;
 using std::string;
+
+namespace fs = std::filesystem;
+
+fs::path PathFromUtf8(string_view utf8)
+{
+    return fs::path(std::u8string_view(reinterpret_cast<const char8_t*>(utf8.data()), utf8.size()));
+}
+
+string Utf8FromPath(const fs::path& path)
+{
+    const std::u8string utf8 = path.generic_u8string();
+    return string(reinterpret_cast<const char*>(utf8.data()), utf8.size());
+}
+
+vector<string> Utf8Arguments(int argc, const char** argv)
+{
+#ifdef _WIN32
+    int wargc = 0;
+    LPWSTR* wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+    if (wargv != nullptr)
+    {
+        vector<string> args;
+        for (int i = 1; i < wargc; ++i)
+        {
+            const int size = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
+            string arg(size > 0 ? size - 1 : 0, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, arg.data(), size, nullptr, nullptr);
+            args.push_back(std::move(arg));
+        }
+        LocalFree(wargv);
+        return args;
+    }
+#endif
+    return vector<string>(argv + 1, argv + argc);
+}
 
 template<typename T>
 void read(ifstream& input, T* v, u32 size) {
@@ -145,8 +188,8 @@ TrigramData TrigramData::Unserialize(ifstream& file)
 //-----------------------------------------------------------------------------
 // FileData
 
-FileData::FileData(const char* path)
-    : filePath { path }
+FileData::FileData(string path)
+    : filePath { std::move(path) }
 {
     fileHash = std::hash<string>{}(filePath);
 }
@@ -209,13 +252,13 @@ bool Index::IndexFile(const string_view& path)
     if (m_indexFilePath.empty())
         return false; // not init
     
-    ifstream file { path.data(), std::ios::binary | std::ios::ate };
+    const fs::path filePath = PathFromUtf8(path);
+    ifstream file { filePath, std::ios::binary | std::ios::ate };
     if (!file.is_open())
         return false;
 
-    std::filesystem::path parent { std::filesystem::path{m_indexFilePath}.parent_path() };
-    std::filesystem::path relativePath { std::filesystem::relative(path.data(), parent) };
-    const FileData newFile { relativePath.c_str() };
+    const fs::path parent = PathFromUtf8(m_indexFilePath).parent_path();
+    const FileData newFile { Utf8FromPath(fs::relative(filePath, parent)) };
     auto it = std::lower_bound(m_files.begin(), m_files.end(), newFile);
     m_files.insert(it, newFile);
 
@@ -296,13 +339,12 @@ string Index::ResultToString(const TrigramFilePos& fp) const
     {
         const string& filepath = (*searchIt).filePath;
 
-        std::filesystem::path parent { std::filesystem::path{m_indexFilePath}.parent_path() };
-        const string absolutePath = (parent.string() + "/" + filepath).c_str();
+        const fs::path absolutePath = PathFromUtf8(m_indexFilePath).parent_path() / PathFromUtf8(filepath);
         ifstream file { absolutePath, std::ios::binary };
         if (file.is_open())
         {
             auto [line,lineCount] = lineAt(file, fp.offset);
-            return std::format("{}:{}:{}", absolutePath, lineCount, line);
+            return std::format("{}:{}:{}", Utf8FromPath(absolutePath), lineCount, line);
         }
     }
 

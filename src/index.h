@@ -2,6 +2,7 @@
 
 #include "zpp_bits.h"
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -15,6 +16,10 @@ using std::string_view;
 using std::vector;
 
 using u32 = unsigned int;
+
+std::filesystem::path PathFromUtf8(string_view utf8);
+string Utf8FromPath(const std::filesystem::path& path);
+vector<string> Utf8Arguments(int argc, const char** argv);
 
 struct Trigram
 {
@@ -56,7 +61,7 @@ struct FileData
     string filePath;
 
     FileData() = default;
-    FileData(const char* path);
+    FileData(string path);
     bool operator<(const FileData& rhs) const;
     void Serialize(ofstream& file);
     static FileData Unserialize(ifstream& file);
