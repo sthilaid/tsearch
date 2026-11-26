@@ -7,8 +7,8 @@ else
 OPTIM=-O2
 endif
 
-#CC=clang++
-CC=F:\.nuget\dd\llvm.22.1.2-ubi03\tools\bin\clang++.exe
+CC=clang++
+#CC=F:\.nuget\dd\llvm.22.1.2-ubi03\tools\bin\clang++.exe
 
 #PROFILE=-fno-omit-frame-pointer -g
 PROFILE=

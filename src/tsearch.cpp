@@ -21,6 +21,7 @@ using std::vector;
 
 bool ParseArguments(const vector<string_view> args, string_view& indexFile, string_view& search, bool& incensitive, bool& verbose)
 {
+    static constexpr const char* usageStr = "Usage: tsearch [OPTION]..PATTERN\n";
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i][0] == '-')  {
             if (args[i] == "-v" || args[i] == "--verbose") {
@@ -29,7 +30,14 @@ bool ParseArguments(const vector<string_view> args, string_view& indexFile, stri
                 incensitive = true;
             } else if ((args[i] == "-f" || args[i] == "--index-file") && i + 1 < args.size() ) {
                 indexFile = args[++i]; // Consume the next argument as the value
-            } 
+            } else if (args[i] == "--help") {
+                printf("%s", usageStr);
+                printf("Options:\n");
+                printf("  -v, --verbose         more verbose output\n");
+                printf("  -i,                   case insensitive search\n");
+                printf("  -f, --index-file      index file to use for search (pass as next argument)\n");
+                return false;
+            }
         }
         else {
             search = args[i];
@@ -37,6 +45,8 @@ bool ParseArguments(const vector<string_view> args, string_view& indexFile, stri
         }
     }
 
+    printf("%s", usageStr);
+    printf("Try 'tsearch --help' for more information.\n");
     return false;
 }
 
@@ -46,7 +56,7 @@ int main(int argc, const char** argv)
     const vector<string> utf8Args = Utf8Arguments(argc, argv);
     const vector<string_view> args(utf8Args.begin(), utf8Args.end());
 
-    bool verbose = true;
+    bool verbose = false;
     bool incensitive = false;
     string_view indexPath = ".tindex";
     string_view search = "";
@@ -71,18 +81,20 @@ int main(int argc, const char** argv)
             string absoluteIndexFilePath = Utf8FromPath(std::filesystem::absolute(indexFilePath));
             index.Init(absoluteIndexFilePath);
 
-            auto end = steady_clock::now();
             printf("index file: %s\n", indexPath.data());
-            printf("%s deserialization finished in %.4f secs.\n", absoluteIndexFilePath.data(), duration<float>(end-start).count());
+            if (verbose)
+            {
+                auto end = steady_clock::now();
+                printf("%s deserialization finished in %.4f secs.\n", absoluteIndexFilePath.data(), duration<float>(end-start).count());
+            }
 
             start = steady_clock::now();
+
             const u32 resultCount = index.Search(search, incensitive);
-            end = steady_clock::now();
+            auto end = steady_clock::now();
             printf("Search found %d results in %.4f secs.\n", resultCount, duration<float>(end-start).count());
         }
-    } else {
-        printf("usage: tsearch <options> [search string]\n");
-    }
+    } 
 
     return 0;
 }

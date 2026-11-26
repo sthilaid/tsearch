@@ -247,7 +247,7 @@ void Index::AccumulateTrigram(const Trigram& newTri, u32 fileHash, u32 offset)
     }
 }
 
-bool Index::IndexFile(const string_view& path)
+bool Index::IndexFile(const string_view& path, bool verbose)
 {
     if (m_indexFilePath.empty())
         return false; // not init

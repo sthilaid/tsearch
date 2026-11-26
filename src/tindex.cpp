@@ -32,6 +32,7 @@ bool ParseArguments(
     vector<string_view>& extensions,
     u32& threadCount)
 {
+    static constexpr const char* usageStr = "Usage: tindex [OPTION].. FILES\n";
     bool parsingFiles = false;
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i][0] == '-')  {
@@ -46,7 +47,16 @@ bool ParseArguments(
                 threadCount = max(1, atoi(args[++i].data())); // Consume the next argument as the value
             } else if ((args[i] == "-e" || args[i] == "--extension") && i + 1 < args.size() ) {
                 extensions.push_back(args[++i]); // Consume the next argument as the value
-            } 
+            } else if (args[i] == "--help") {
+                printf("%s", usageStr);
+                printf("Options:\n");
+                printf("-v, --verbose       More verbose output during indexing\n");
+                printf("-o, --output        Where to output the serialized index, by default it will be '.tsearch'\n");
+                printf("-t, --thread-count  Number of threads used during indexation\n");
+                printf("-e, --extension     String used to selct files of certain extensions, like '.cpp'. Can be multiple.\n");
+                printf("--help              Print this help details\n");
+                return false;
+            }
         }
         else {
             parsingFiles = true;
@@ -54,7 +64,15 @@ bool ParseArguments(
         }
     }
 
-    return inputFiles.size() > 0;
+
+    const bool parsedOK = inputFiles.size() > 0;
+    if (!parsedOK)
+    {
+        printf("%s", usageStr);
+        printf("Try 'tindex --help' for more information.\n");
+    }
+
+    return parsedOK;
 }
 
 void resolve_dirs(vector<string>& inputFiles, const vector<string_view>& extensions, auto& it, u32& totalBytes)
@@ -99,7 +117,7 @@ int main(int argc, const char** argv)
     const vector<string> utf8Args = Utf8Arguments(argc, argv);
     const vector<string_view> args(utf8Args.begin(), utf8Args.end());
 
-    bool verbose = true;
+    bool verbose = false;
     string_view outputFile = ".tindex";
     u32 threadCountParam = 8;
     vector<string> inputFiles;
@@ -117,13 +135,14 @@ int main(int argc, const char** argv)
 
         auto start = steady_clock::now();
         const u32 totalFiles = inputFiles.size();
-        auto indexFun = [&inputFiles, totalFiles] (Index& index, u32 threadID, u32 from, u32 to) {
+        auto indexFun = [&inputFiles, totalFiles, verbose] (Index& index, u32 threadID, u32 from, u32 to) {
             for (int i=from; i<to; ++i) {
                 const string& f = inputFiles[i];
                 const u32 precount = index.TrigramCount();
-                index.IndexFile(f);
+                index.IndexFile(f, verbose);
                 const u32 postcount = index.TrigramCount();
-                printf("[%d - %d/%d] %s - %d new trigrams - total: %d\n", threadID, i-from+1, to-from, f.data(), (postcount-precount), postcount);
+                if (verbose)
+                    printf("[%d - %d/%d] %s - %d new trigrams - total: %d\n", threadID, i-from+1, to-from, f.data(), (postcount-precount), postcount);
             }};
 
         const u32 threadCount = max<u32>(1, min<u32>(threadCountParam, totalFiles));
@@ -140,27 +159,32 @@ int main(int argc, const char** argv)
             const u32 from = t*filesPerThread;
             const u32 to = (t+1)*filesPerThread;
             threads[t] = std::jthread(indexFun, std::ref(indexes[t]), t, from, to);
-            printf("thread %d from %d to %d\n", t, from, to);
+            //printf("thread %d from %d to %d\n", t, from, to);
         }
         for (u32 t=0; t<threadCount; ++t) threads[t].join();
 
-        auto end = steady_clock::now();
-        auto elapsed = end - start;
-
-        printf("Indexation finished in %.4f secs.\n", duration<float>(elapsed).count());
+        if (verbose)
+        {
+            auto end = steady_clock::now();
+            auto elapsed = end - start;
+            printf("Indexation finished in %.4f secs.\n", duration<float>(elapsed).count());
+            start = end;
+        }
         
         for (u32 t=1; t<threadCount; ++t) indexes[0].Merge(std::move(indexes[t]));
         const Index& newIndex = indexes[0];
 
-        start = end;
-        end = steady_clock::now();
-        elapsed = end - start;
+        if (verbose)
+        {
+            auto end = steady_clock::now();
+            auto elapsed = end - start;
 
-        printf("Indexation Merging in %.4f secs. Indexed %d kB (avg: %.2f kB/sec)\n",
-               duration<float>(elapsed).count(),
-               totalBytes/1000, totalBytes / (1000*duration<float>(elapsed).count()));
+            printf("Indexation Merging in %.4f secs. Indexed %d kB (avg: %.2f kB/sec)\n",
+                   duration<float>(elapsed).count(),
+                   totalBytes/1000, totalBytes / (1000*duration<float>(elapsed).count()));
+            start = end;
+        }
 
-        start = end;
         ofstream indexFile { outputPath, std::ios::binary };
         if (indexFile.is_open())
         {
@@ -171,13 +195,21 @@ int main(int argc, const char** argv)
             indexFile.write(reinterpret_cast<const char*>(processed.data()), processed.size());
             //newIndex.Serialize(indexFile);
         }
-        end = steady_clock::now();
-        elapsed = end - start;
+
         const u32 indexFileSize = std::filesystem::file_size(outputPath);
-        printf("index serialization (%.2u kB) finished in %.4f secs.\n", indexFileSize/1000, duration<float>(elapsed).count());
-    } else {
-        printf("usage: tindex <options> [files to index]\n");
-    }
+        if (verbose)
+        {
+            auto end = steady_clock::now();
+            auto elapsed = end - start;
+            printf("index serialization (%.2u kB) finished in %.4f secs.\n", indexFileSize/1000, duration<float>(elapsed).count());
+        }
+        else
+        {
+            auto end = steady_clock::now();
+            auto elapsed = end - start;
+            printf("Indexed %u files (%.2u kB) in %.4f secs.\n", newIndex.FilesCount(), indexFileSize/1000, duration<float>(elapsed).count());
+        }
+    } 
 
     return 0;
 }
