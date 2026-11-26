@@ -399,6 +399,7 @@ u32 Index::Search(string_view query, bool incensitive)
 
 void Index::Merge(Index&& rhs)
 {
+    // todo multithread this too?
     for (TrigramData& rhsData : std::move(rhs.m_trigrams))
     {
         auto searchIt = std::lower_bound(m_trigrams.begin(), m_trigrams.end(), rhsData);

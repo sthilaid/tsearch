@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -20,15 +21,18 @@ using std::vector;
 //-----------------------------------------------------------------------------
 // main
 
+template<typename T> T min(T a, T b) { return a<b ? a : b; }
+template<typename T> T max(T a, T b) { return a>=b ? a : b; }
+
 bool ParseArguments(
     const vector<string_view> args,
     string_view& outputFile,
     vector<string>& inputFiles,
     bool& verbose,
-    vector<string_view>& extensions)
+    vector<string_view>& extensions,
+    u32& threadCount)
 {
     bool parsingFiles = false;
-    //for (const string_view& v : args) printf("%s\n", v.data());
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i][0] == '-')  {
             if (parsingFiles)
@@ -38,6 +42,8 @@ bool ParseArguments(
                 verbose = true;
             } else if ((args[i] == "-o" || args[i] == "--output") && i + 1 < args.size() ) {
                 outputFile = args[++i]; // Consume the next argument as the value
+            } else if ((args[i] == "-t" || args[i] == "--thread-count") && i + 1 < args.size() ) {
+                threadCount = max(1, atoi(args[++i].data())); // Consume the next argument as the value
             } else if ((args[i] == "-e" || args[i] == "--extension") && i + 1 < args.size() ) {
                 extensions.push_back(args[++i]); // Consume the next argument as the value
             } 
@@ -95,41 +101,21 @@ int main(int argc, const char** argv)
 
     bool verbose = true;
     string_view outputFile = ".tindex";
+    u32 threadCountParam = 8;
     vector<string> inputFiles;
     vector<string_view> extensions;
 
-    if (ParseArguments(args, outputFile, inputFiles, verbose, extensions)) {
+    if (ParseArguments(args, outputFile, inputFiles, verbose, extensions, threadCountParam)) {
         u32 totalBytes = 0;
         auto it=inputFiles.begin();
         while (it != inputFiles.end()) {
             resolve_dirs(inputFiles, extensions, it, totalBytes);
         }
 
-        // printf("output: %s\n", outputFile.data());
-        // printf("input: \n");
-        // for (const string& f : inputFiles) {
-        //     printf("\t%s\n", f.data());
-        // }
-
         const std::filesystem::path outputPath = PathFromUtf8(outputFile);
         string absoluteOutputFile = Utf8FromPath(std::filesystem::absolute(outputPath));
 
         auto start = steady_clock::now();
-
-        // Index newIndex {};
-        // newIndex.Init(absoluteOutputFile);
-
-        // const u32 totalFiles = inputFiles.size();
-        // for (int i=0; i<totalFiles; ++i) {
-        //     const string& f = inputFiles[i];
-        //     const u32 precount = newIndex.TrigramCount();
-
-        //     printf("[%d/%d] %s", i+1, totalFiles, f.data());
-        //     newIndex.IndexFile(f);
-        //     const u32 postcount = newIndex.TrigramCount();
-        //     printf(" - %d new trigrams - total: %d\n", (postcount-precount), postcount);
-        // }
-
         const u32 totalFiles = inputFiles.size();
         auto indexFun = [&inputFiles, totalFiles] (Index& index, u32 threadID, u32 from, u32 to) {
             for (int i=from; i<to; ++i) {
@@ -140,9 +126,7 @@ int main(int argc, const char** argv)
                 printf("[%d - %d/%d] %s - %d new trigrams - total: %d\n", threadID, i-from+1, to-from, f.data(), (postcount-precount), postcount);
             }};
 
-        #define min(a,b) (a<b ? a : b)
-        #define max(a,b) (a>=b ? a : b)
-        const u32 threadCount = max(1, min(8, totalFiles));
+        const u32 threadCount = max<u32>(1, min<u32>(threadCountParam, totalFiles));
         vector<Index> indexes;
         indexes.resize(threadCount);
         for (Index& i : indexes) i.Init(absoluteOutputFile);
